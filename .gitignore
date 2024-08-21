@@ -1,0 +1,7 @@
+client_secret.json
+error_channels.txt
+inactive_channels.txt
+output.log
+processed_channels.txt
+subscriptions.json
+token.pickle

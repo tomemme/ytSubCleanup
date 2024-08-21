@@ -8,6 +8,10 @@ import datetime
 import time
 import json
 
+# Set the working directory to the script's directory
+script_dir = os.path.dirname(os.path.abspath(__file__))
+os.chdir(script_dir)
+
 # API credentials
 CLIENT_SECRETS_FILE = "client_secret.json"
 SCOPES = ['https://www.googleapis.com/auth/youtube.readonly']
@@ -164,10 +168,10 @@ def main():
                         # Handle Shorts-specific logic if needed
                 if last_video_date < datetime.datetime.now() - datetime.timedelta(days=365):
                     print(f"Unsubscribe from: {channel_title} (Last video: {last_video_date})")
-                    inactive_channels.append(f"{channel_id} (Last video: {last_video_date})")
+                    inactive_channels.append(f"{channel_id} | Last video: {last_video_date} | {channel_title}")
             else:
                 print(f"Unsubscribe from: {channel_title} (No videos found)")
-                inactive_channels.append(f"{channel_id} (No videos found)")
+                inactive_channels.append(f"{channel_id} | (No videos found) | {channel_title}")
 
             processed_channels.add(channel_id)
             time.sleep(1)
