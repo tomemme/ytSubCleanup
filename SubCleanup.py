@@ -180,18 +180,18 @@ def main():
         error_channels.append(f"{channel_title} (ID: {channel_id})")
     finally:
         # Save the list of inactive channels to a file
-        with open(INACTIVE_CHANNELS_FILE, 'a') as f:
+        with open(INACTIVE_CHANNELS_FILE, 'a', encoding='utf-8') as f:
             for channel in inactive_channels:
                 f.write(channel + "\n")
 
         # Save the unique list of processed channels to a file
-        with open(PROCESSED_CHANNELS_FILE, 'w') as f:
+        with open(PROCESSED_CHANNELS_FILE, 'w', encoding='utf-8') as f:
             for channel_id in processed_channels:
                 f.write(channel_id + "\n")
 
         # Save the list of channels that caused errors
         if error_channels:
-            with open(ERROR_CHANNELS_FILE, 'a') as f:
+            with open(ERROR_CHANNELS_FILE, 'a', encoding='utf-8') as f:
                 for channel in error_channels:
                     f.write(channel + "\n")
 
