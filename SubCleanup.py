@@ -2,6 +2,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
 import google.auth.exceptions
+from googleapiclient.errors import HttpError
 import pickle
 import os
 import datetime
@@ -20,6 +21,15 @@ INACTIVE_CHANNELS_FILE = 'inactive_channels.txt'
 SUBSCRIPTIONS_FILE = 'subscriptions.json'
 ERROR_CHANNELS_FILE = 'error_channels.txt'
 API_REQUEST_LIMIT = 9500  # Safe margin to stop before hitting the daily quota
+
+api_request_count = 0  # Track the number of API requests
+
+def increment_api_request_count():
+    global api_request_count
+    api_request_count += 1
+    if api_request_count >= API_REQUEST_LIMIT:
+        print("Approaching API quota limit. Stopping further requests.")
+        raise StopIteration   # breaks out more clean than break??
 
 def get_authenticated_service():
     """
@@ -51,52 +61,72 @@ def get_channel_last_video_date(service, channel_id):
     """
     Fetches the date of the last video uploaded by the given channel.
     """
-    request = service.search().list(
-        part='snippet',
-        channelId=channel_id,
-        maxResults=1,
-        order='date'
-    )
-    response = request.execute()
-    if response['items']:
-        snippet = response['items'][0]['snippet']
-        published_at = snippet.get('publishedAt')
-        video_id = response['items'][0].get('id', {}).get('videoId')
-        return published_at, video_id
-    else:
+    try:
+        increment_api_request_count() #count api calls
+        request = service.search().list(
+            part='snippet',
+            channelId=channel_id,
+            maxResults=1,
+            order='date'
+        )
+        response = request.execute()
+        if response['items']:
+            snippet = response['items'][0]['snippet']
+            published_at = snippet.get('publishedAt')
+            video_id = response['items'][0].get('id', {}).get('videoId')
+            return published_at, video_id
+        else:
+            return None, None
+    except HttpError as e:
+        if 'quotaExceeded' in str(e):
+            print("Quota exceeded error encountered.")
+            raise StopIteration
+        print(f"Error processing channel ID {channel_id}: {e}")
         return None, None
 
 def get_video_details(service, video_id):
     """
     Fetches the details of the given video.
     """
-    request = service.videos().list(
-        part='contentDetails',
-        id=video_id
-    )
-    response = request.execute()
-    if response['items']:
-        duration = response['items'][0]['contentDetails']['duration']
-        return duration
-    return None
+    try:
+        increment_api_request_count()
+        request = service.videos().list(
+            part='contentDetails',
+            id=video_id
+        )
+        response = request.execute()
+        if response['items']:
+            duration = response['items'][0]['contentDetails']['duration']
+            return duration
+        return None
+    except HttpError as e:
+        if 'quotaExceeded' in str(e):
+            print("Quota exceeded error encountered.")
+            raise StopIteration
+        print(f"Error processing video ID {video_id}: {e}")
+        return None
 
 def fetch_subscriptions(service):
     """
     Fetches all the subscriptions of the authenticated user.
     """
     subscriptions = []
-    request = service.subscriptions().list(
-        part='snippet',
-        mine=True,
-        maxResults=50
-    )
+    try:
+        request = service.subscriptions().list(
+            part='snippet',
+            mine=True,
+            maxResults=50
+        )
 
-    while request is not None:
-        print("Making API request to fetch subscriptions...")
-        response = request.execute()
-        subscriptions.extend(response['items'])
-        request = service.subscriptions().list_next(request, response)
-        time.sleep(1)
+        while request is not None:
+            increment_api_request_count()
+            print("Making API request to fetch subscriptions...")
+            response = request.execute()
+            subscriptions.extend(response['items'])
+            request = service.subscriptions().list_next(request, response)
+            time.sleep(1)
+    except StopIteration:
+        print("Stopped fetching subscriptions due to reaching API quota limit.")
 
     return subscriptions
 
@@ -133,7 +163,7 @@ def main():
         print("Loaded subscriptions from file.")
 
     print("Retrieved subscriptions:")
-    api_request_count = 0  # Track the number of API requests
+    
     inactive_channels = []
     processed_channels = set()
     error_channels = []
@@ -151,13 +181,11 @@ def main():
             if channel_id in processed_channels:
                 continue
 
-            if api_request_count >= API_REQUEST_LIMIT:
-                print("Approaching API quota limit. Stopping further requests.")
-                break
-
             print(f"Checking channel: {channel_title} (ID: {channel_id})")
             last_video_date, last_video_id = get_channel_last_video_date(service, channel_id)
-            api_request_count += 1
+            if last_video_date is None:
+                error_channels.append(f"{channel_id} | Error fetching last video date | {channel_title}")
+                continue
 
             if last_video_date:
                 last_video_date = datetime.datetime.strptime(last_video_date, "%Y-%m-%dT%H:%M:%SZ")
@@ -175,9 +203,13 @@ def main():
 
             processed_channels.add(channel_id)
             time.sleep(1)
+
+    except StopIteration:
+        print("Processing stopped due to API quota limit.")
+
     except Exception as e:
         print(f"Error processing channel {channel_title} (ID: {channel_id}): {e}")
-        error_channels.append(f"{channel_title} (ID: {channel_id})")
+        error_channels.append(f"{channel_title} (ID: {channel_id}) {e}")
     finally:
         # Save the list of inactive channels to a file
         with open(INACTIVE_CHANNELS_FILE, 'a', encoding='utf-8') as f:
